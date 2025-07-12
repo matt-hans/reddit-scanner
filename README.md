@@ -258,11 +258,11 @@ Ensure your `.env` file exists and contains valid `REDDIT_CLIENT_ID` and `REDDIT
 ### Project Structure
 ```
 reddit-scanner/
-   reddit_scanner.py     # Main MCP server implementation
-   test-mcp-client.py    # Test client
-   pyproject.toml        # Project configuration
-   .env                  # Environment variables (create this)
-   README.md            # This file
+├── reddit_scanner.py     # Main MCP server implementation
+├── test-mcp-client.py    # Test client
+├── pyproject.toml        # Project configuration
+├── .env                  # Environment variables (create this)
+└── README.md            # This file
 ```
 
 ### Adding New Tools
