@@ -1,0 +1,295 @@
+🧪 Reddit Scanner MCP Tool Tester
+📝 This script tests all 10 tools with placeholder values
+🔍 Provides detailed debugging output for each response
+--------------------------------------------------------------------------------
+🚀 Starting MCP server...
+
+📋 Initializing MCP connection...
+✅ MCP initialized successfully
+
+📋 Listing available tools...
+✅ Found 9 tools:
+  - subreddit_pain_point_scanner
+  - solution_request_tracker
+  - user_workflow_analyzer
+  - competitor_mention_monitor
+  - subreddit_engagement_analyzer
+  - niche_community_discoverer
+  - temporal_trend_analyzer
+  - user_persona_extractor
+  - idea_validation_scorer
+
+================================================================================
+🧪 STARTING COMPREHENSIVE TOOL TESTS
+================================================================================
+
+================================================================================
+🧪 TEST: subreddit_pain_point_scanner
+📝 Description: Scanning for user pain points and frustrations
+================================================================================
+
+🔧 Calling tool: subreddit_pain_point_scanner
+📥 Arguments: {
+  "subreddit_names": [
+    "python",
+    "learnprogramming",
+    "webdev"
+  ],
+  "time_filter": "week",
+  "limit": 10,
+  "pain_keywords": [
+    "frustrated",
+    "annoying",
+    "wish there was"
+  ],
+  "min_score": 5,
+  "include_comments": true,
+  "comment_depth": 3
+}
+
+================================================================================
+🔧 TOOL: subreddit_pain_point_scanner
+⏱️  Time: 20.04s
+================================================================================
+✅ SUCCESS - Response Data:
+{
+  "pain_points": [
+    {
+      "id": "1lynt4i",
+      "title": "Why LLMs confirm everything you say",
+      "author": "PureTruther",
+      "score": 167,
+      "upvote_ratio": 0.82,
+      "num_comments": 82,
+      "created_utc": 1752395298.0,
+      "url": "https://reddit.com/r/learnprogramming/comments/1lynt4i/why_llms_confirm_everything_you_say/",
+      "selftext": "\nEdit2:\nAnswer: They are flattering you because of commercial concerns.\nThanks to u/ElegantPoet3386 u/13oundary u/that_leaflet u/eruciform u/Patrick_Atsushi u/Liron12345 \n\nAlso, u/dsartori 's [recommendation](https://www.reddit.com/r/learnprogramming/s/bjZ4h6lfa1) is worth to check.\n\n\nThe question's essence for dumbasses:\n\n- Monkey trains an LLM.\n- Monkey asks questions to LLM\n- Even the answer was embedded into the training data, LLM gives wrong answer first and then corrected the answer.\n\nI th",
+      "type": "post",
+      "keywords": [
+        "annoying"
+      ],
+      "problem": "\n\n##############\n\nEdit: I'm just talking about its annoying behavior"
+    },
+    {
+      "id": "n31ze97",
+      "author": "aqua_regis",
+      "body": "Way more than five points, but these are the most common suggestions that I've collected from 10 years of teaching, 35 years as a professional programmer, and from the courses I led and authored.\n\n+ Read the **Frequently Asked Questions**.\n+ Be curious. Don't be afraid to experiment. Play around. Break things. Fix them. Practice, practice, practice, and practice more.\n+ Don't go looking for tutorials for everything. Learn to stand on your own feet. In that line, do a proper fundamentals course a",
+      "score": 131,
+      "created_utc": 1752490580.0,
+      "url": "https://reddit.com/r/learnprogramming/comments/1lzixwn/what_are_top_5_advices_youd_give_to_anyone_new_in/n31ze97/",
+      "type": "comment"
+    }
+  ],
+  "category_counts": {
+    "annoying": 1
+  },
+  "total_found": 2,
+  "subreddits_scanned": 3
+}
+
+📊 Response Summary:
+  - pain_points: 2 items
+  - category_counts: 1 entries
+  - total_found: 2
+  - subreddits_scanned: 3
+
+================================================================================
+🧪 TEST: solution_request_tracker
+📝 Description: Tracking software recommendation requests
+================================================================================
+
+🔧 Calling tool: solution_request_tracker
+📥 Arguments: {
+  "subreddit_names": [
+    "software",
+    "productivity"
+  ],
+  "request_patterns": [
+    "looking for.*app",
+    "any.*tools",
+    "recommend.*software"
+  ],
+  "exclude_solved": true,
+  "min_engagement": 5,
+  "time_window": "month",
+  "category_keywords": {
+    "automation": [
+      "automate",
+      "workflow"
+    ],
+    "productivity": [
+      "efficiency",
+      "time",
+      "organize"
+    ]
+  }
+}
+
+================================================================================
+🔧 TOOL: solution_request_tracker
+⏱️  Time: 2.60s
+================================================================================
+✅ SUCCESS - Response Data:
+{
+  "requests": [
+    {
+      "id": "1ll2syn",
+      "title": "Best Unique Handy Programs You Know Of......",
+      "author": "CamaroLover2020",
+      "score": 45,
+      "upvote_ratio": 0.91,
+      "num_comments": 34,
+      "created_utc": 1750951093.0,
+      "url": "https://reddit.com/r/software/comments/1ll2syn/best_unique_handy_programs_you_know_of/",
+      "selftext": "What are some cool little utilities that you know of? for instance apps that help you do things on your computer like automatically create  multiple folders for corresponding files within a folder? (I'm actually looking for a program that can do this) - So would appreciate if anyone could suggest a program for this!!\n\nBut anything cool like this, share it below!",
+      "category": "general",
+      "requirements": []
+    },
+    {
+      "id": "1lkufzr",
+      "title": "Auto Captioner - Transcribing videos with OpenAI Whisper [Open-Source]",
+      "author": "Responsible_Sir1806",
+      "score": 24,
+      "upvote_ratio": 0.93,
+      "num_comments": 13,
+      "created_utc": 1750924992.0,
+      "url": "https://reddit.com/r/software/comments/1lkufzr/auto_captioner_transcribing_videos_with_openai/",
+      "selftext": "Hey, everyone! I just started an open-source project to automatically add subtitles to videos. It's a really time-saving tool, and I'm excited to share it with you. I was inspired by one of my clients, whom I'm helping to automate content creation. Then I started building some tools with Whisper from OpenAI, which is great for transcribing text. That's the starting point for this project, and I'm excited to hear any ideas I can add to it, as I'm passionate about working on tools like this.\n\nHave",
+      "category": "automation",
+      "requirements": []
+    },
+    {
+      "id": "1lw6i40",
+      "title": "Looking for a lightweight PDF tool (no ads pls)",
+      "author": "No_Needleworker_5577",
+      "score": 22,
+      "upvote_ratio": 0.92,
+      "num_comments": 39,
+      "created_utc": 1752132090.0,
+      "url": "https://reddit.com/r/software/comments/1lw6i40/looking_for_a_lightweight_pdf_tool_no_ads_pls/",
+      "selftext": "I\u2019ve tested a bunch of PDF apps and most are bloated with ads or require sign-ups. I finally found one that merges PDFs offline, no login, no BS.  \nCurious\u2014any other clean, minimalist tools out there (not just for PDFs) that you\u2019d recommend?\n\n  \n**Update:** I finally found a free iOS app that does exactly what I needed:  \n\ud83d\udc49 [https://apps.apple.com/us/app/pdf-merger-combiner/id6743774630](https://apps.apple.com/us/app/pdf-merger-combiner/id6743774630)",
+      "category": "general",
+      "requirements": []
+    },
+    {
+      "id": "1lp1sko",
+      "title": "What OCR toolchain do you use for document-based applications?",
+      "author": "unplanned-kid",
+      "score": 17,
+      "upvote_ratio": 0.9,
+      "num_comments": 5,
+      "created_utc": 1751376781.0,
+      "url": "https://reddit.com/r/software/comments/1lp1sko/what_ocr_toolchain_do_you_use_for_documentbased/",
+      "selftext": "I\u2019m revisiting the OCR component of a document-heavy application I\u2019ve been working on. It involves extracting structured content from a mix of scanned PDFs, image-based forms, and some fairly complex technical documentation (e.g. reports with tables, charts, multi-column layouts, etc.).\n\nI\u2019ve used some OCR tools combined with some lightweight post-processing (regexes, heuristics, a bit of OpenCV) to clean things up. It works for basic needs, but it\u2019s not great at handling structured layouts, and",
+      "category": "automation",
+      "requirements": [
+        "needs, but it\u2019s not great at handling structured layouts, and it's pretty hit-or-miss with tables or non-standard fonts"
+      ]
+    },
+    {
+      "id": "1lxysag",
+      "title": "Looking for a specific software called, \"HyperStudio\"",
+      "author": "GavindaleMarchovia",
+      "score": 10,
+      "upvote_ratio": 0.87,
+      "num_comments": 9,
+      "created_utc": 1752321781.0,
+      "url": "https://reddit.com/r/software/comments/1lxysag/looking_for_a_specific_software_called_hyperstudio/",
+      "selftext": "Hey everyone! Back when I was little, about 8 years old, my parents bought me my first computer - an Apple//GS for my birthday. Aside from my Atari, this was my first gaming-related electronics. And one program I soon obtained was called \"HyperStudio\". Basically what that software does is lets you create frame-by-frame images, and then sync them together to make an animation. You could also put \"buttons\" on the screen to click those animations to, and attach sound effects as well. I gave away th",
+      "category": "general",
+      "requirements": []
+    },
+    {
+      "id": "1lg57n8",
+      "title": "Looking for ebook reader apps for android",
+      "author": "BookWormPerson",
+      "score": 8,
+      "upvote_ratio": 1.0,
+      "num_comments": 14,
+      "created_utc": 1750429263.0,
+      "url": "https://reddit.com/r/software/comments/1lg57n8/looking_for_ebook_reader_apps_for_android/",
+      "selftext": "I got a new Ereader and I don't really like how the default reader works on it and sadly the most used alternative KOreader doesn't work well on mine.\n\nI mostly have epubs but I have a couple RTF and world files mostly.  Though I doubt those should be a problem.\n\nIf it can handle populating it's own \"shelf\" on it's own it would be good because that's the biggest problem I have run into with the few I tried.\n\nI have a MeeBook M7 if that matters.",
+      "category": "general",
+      "requirements": []
+    },
+    {
+      "id": "1lx4tp7",
+      "title": "Teamviewer Alternative with single app/window control only",
+      "author": "Sexiest_Man_Alive",
+      "score": 7,
+      "upvote_ratio": 1.0,
+      "num_comments": 10,
+      "created_utc": 1752234592.0,
+      "url": "https://reddit.com/r/software/comments/1lx4tp7/teamviewer_alternative_with_single_appwindow/",
+      "selftext": "I'm starting to really hate TeamViewer, so I'm looking for a similar alternative that has the same feature that allows others to only view and remotely control (type, click buttons, etc.) the single app or window I selected.\n\nAll the ones I've seen share the ENTIRE screen. I don't want that. I only want them to control my selected app/window. So any recommendations?",
+      "category": "general",
+      "requirements": []
+    },
+    {
+      "id": "1lezp3z",
+      "title": "Any recommendations for free file/image sorting software?",
+      "author": "xdarkskylordx",
+      "score": 4,
+      "upvote_ratio": 0.84,
+      "num_comments": 15,
+      "created_utc": 1750300461.0,
+      "url": "https://reddit.com/r/software/comments/1lezp3z/any_recommendations_for_free_fileimage_sorting/",
+      "selftext": "I'm basically looking for something that can read the filenames of everything in a folder and then move it to a specific related folder either automatically or with relative ease.  I've tried several options, but most haven't really worked well for me.",
+      "category": "general",
+      "requirements": []
+    },
+    {
+      "id": "1lzbb6e",
+      "title": "What's the best software for voiceover screen recording videos?",
+      "author": "AggravatingIdea7891",
+      "score": 4,
+      "upvote_ratio": 0.84,
+      "num_comments": 7,
+      "created_utc": 1752461471.0,
+      "url": "https://reddit.com/r/software/comments/1lzbb6e/whats_the_best_software_for_voiceover_screen/",
+      "selftext": "At the moment I'm trying to decide between Loom, [Tella.tv](http://Tella.tv) and ScreenStudio for creating voiceover screen recordings. I\u2019m currently testing out the free trials of Loom and Tella, and I went ahead and bought just 1 month of ScreenStudio to give it a proper test run.\n\n\n\nI'm in kind of a research phase right now, where I want to find whichever tool works best for me, and then really committing to learning it well for the rest of the year.\u00a0\n\n\n\nJust wanted to see if anyone here has ",
+      "category": "general",
+      "requirements": []
+    },
+    {
+      "id": "1ltea7q",
+      "title": "any recommendations on free Blu Ray authoring software?",
+      "author": "Beneficial_Donkey_66",
+      "score": 6,
+      "upvote_ratio": 1.0,
+      "num_comments": 6,
+      "created_utc": 1751841765.0,
+      "url": "https://reddit.com/r/software/comments/1ltea7q/any_recommendations_on_free_blu_ray_authoring/",
+      "selftext": "im trying to find software like dvd styler but for blurays ive tried dvd fab but im not looking for a subscription service ",
+      "category": "general",
+      "requirements": []
+    },
+    {
+      "id": "1lxa1zq",
+      "title": "What are your top productivity tools?",
+      "author": "CalyDreadz",
+      "score": 934,
+      "upvote_ratio": 1.0,
+      "num_comments": 128,
+      "created_utc": 1752248197.0,
+      "url": "https://reddit.com/r/productivity/comments/1lxa1zq/what_are_your_top_productivity_tools/",
+      "selftext": "I\u2019m trying to pull together some of the best productivity apps and tools into one place. If you have any tools, apps or techniques that help you stay productive or organized, I\u2019d love to hear what works for you. Anything that\u2019s made a difference for you would be really appreciated!",
+      "category": "productivity",
+      "requirements": []
+    },
+    {
+      "id": "1lf2pdq",
+      "title": "How are you managing back-to-back meetings without losing productivity?",
+      "author": "Few_Chocolate9758",
+      "score": 50,
+      "upvote_ratio": 0.95,
+      "num_comments": 53,
+      "created_utc": 1750310446.0,
+      "url": "https://reddit.com/r/productivity/comments/1lf2pdq/how_are_you_managing_backtoback_meetings_without/",
+      "selftext": "Lately, I\u2019ve had back-to-back meetings almost every day, and it's getting hard to stay on top of actual work.\n\nCurious, how are you all handling this? Any systems, habits, or tools that help you stay productive without burning out?",
+      "category": "general",
+      "requirements": []
+    }
+  ],
+  "total": 12
+}
