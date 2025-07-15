@@ -1,0 +1,10 @@
+INFO:__main__:Starting Reddit Scanner MCP Server...
+INFO:__main__:Server name: reddit_opportunity_finder_enhanced
+INFO:__main__:Transport: stdio
+INFO:__main__:Reddit credentials: Configured
+INFO:__main__:=== NLP SETUP STATUS ===
+INFO:__main__:Status: ✅ NLP Available: Using en_core_web_md (Medium model (good accuracy, ~50MB))
+INFO:__main__:Performance: Full NLP features available including semantic similarity and advanced clustering.
+INFO:__main__:Tip: 💡 For better accuracy, install: python -m spacy download en_core_web_lg
+INFO:__main__:========================
+INFO:__main__:Server is ready and waiting for MCP commands...
