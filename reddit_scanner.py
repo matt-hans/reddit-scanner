@@ -1265,6 +1265,175 @@ async def idea_validation_scorer(
     result = {"scores": scores[:10], "total": len(scores)}
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
+
+# Default workflow signals for workflow_thread_inspector
+DEFAULT_WORKFLOW_SIGNALS = [
+    "step", "process", "export", "import", "csv", "manual", "copy", "paste",
+    "click", "download", "upload", "workaround", "hack", "tedious"
+]
+
+
+@mcp.tool()
+async def workflow_thread_inspector(
+    post_ids: List[str],
+    workflow_signals: List[str] = None,
+    comment_limit: int = 100,
+    expand_depth: int = 5,
+    min_score: int = 1,
+    batch_delay: float = 1.5
+) -> List[TextContent]:
+    """Expands nested comment trees to find workflow details buried in replies.
+
+    Analyzes Reddit post comment threads to discover detailed workflow information,
+    step-by-step processes, and manual work patterns that users describe in comments.
+
+    Args:
+        post_ids: Reddit post IDs to analyze (e.g., ["abc123", "def456"])
+        workflow_signals: LLM-generated contextual keywords to match. If None,
+            uses default signals like "step", "process", "export", "manual", etc.
+        comment_limit: Maximum comments to return per post (default: 100)
+        expand_depth: How many "load more" expansions to perform (default: 5)
+        min_score: Minimum comment score to include (default: 1)
+        batch_delay: Seconds between API requests for rate limiting (default: 1.5)
+
+    Returns:
+        ToolResponse envelope with workflow comments per post, each containing:
+        - post_id: The Reddit post ID
+        - post_title: Title of the post
+        - post_url: URL to the post
+        - workflow_comments: List of comments matching workflow signals, each with:
+            - author: Username (or None if deleted)
+            - body: Comment text (truncated to 1000 chars)
+            - score: Comment score
+            - depth: Nesting depth in thread
+            - url: Permalink to comment
+    """
+    # Create response envelope
+    response = ToolResponse(tool_name="workflow_thread_inspector")
+
+    # Apply default workflow signals if None provided
+    signals_used = workflow_signals if workflow_signals is not None else DEFAULT_WORKFLOW_SIGNALS
+    response.extra_metadata["signals_used"] = signals_used
+
+    # Input validation: post_ids
+    if not isinstance(post_ids, list) or not post_ids:
+        response.add_error("post_ids", "Must be a non-empty list of post IDs")
+        return response.to_response()
+
+    for post_id in post_ids:
+        if not validate_post_id(post_id):
+            response.add_error("post_ids", f"Invalid post ID format: {post_id}")
+            return response.to_response()
+
+    # Input validation: batch_delay
+    if not validate_batch_delay(batch_delay):
+        response.add_error("batch_delay", "Must be between 0.5 and 10.0 seconds")
+        return response.to_response()
+
+    # Set up rate limiting
+    config = RateLimitConfig(batch_delay=batch_delay, request_budget=100)
+    executor = RateLimitedExecutor(config)
+
+    def truncate_body(body: str, max_length: int = 1000) -> str:
+        """Truncate body to max_length chars with '...' suffix."""
+        if len(body) <= max_length:
+            return body
+        return body[:max_length] + "..."
+
+    def comment_matches_signals(comment_body: str, signals: List[str]) -> bool:
+        """Check if comment body contains any of the signal keywords."""
+        body_lower = comment_body.lower()
+        return any(signal.lower() in body_lower for signal in signals)
+
+    def extract_comment_data(comment, signals: List[str]) -> Optional[Dict[str, Any]]:
+        """Extract standardized comment data if it passes filters."""
+        # Check score
+        if not hasattr(comment, 'score') or comment.score < min_score:
+            return None
+
+        # Check body exists
+        if not hasattr(comment, 'body') or not comment.body:
+            return None
+
+        # Check for signal keywords
+        if not comment_matches_signals(comment.body, signals):
+            return None
+
+        # Extract author name (handle deleted users)
+        author_name = None
+        if hasattr(comment, 'author') and comment.author is not None:
+            author_name = getattr(comment.author, 'name', None)
+
+        return {
+            "author": author_name,
+            "body": truncate_body(comment.body),
+            "score": comment.score,
+            "depth": getattr(comment, 'depth', 0),
+            "url": f"https://reddit.com{comment.permalink}" if hasattr(comment, 'permalink') else None
+        }
+
+    # Process each post
+    logger.info(f"Starting workflow thread inspection for {len(post_ids)} posts")
+
+    for post_id in post_ids:
+        try:
+            reddit = await RedditClient.get()
+
+            # Fetch submission
+            submission = await executor.execute(
+                lambda pid=post_id: reddit.submission(id=pid)
+            )
+
+            # Expand comment tree
+            await executor.execute(
+                lambda sub=submission: sub.comments.replace_more(limit=expand_depth)
+            )
+
+            # Get flattened comment list
+            comments = await executor.execute(
+                lambda sub=submission: list(sub.comments.list())
+            )
+
+            # Filter and extract workflow comments
+            workflow_comments = []
+            for comment in comments:
+                comment_data = extract_comment_data(comment, signals_used)
+                if comment_data is not None:
+                    workflow_comments.append(comment_data)
+
+                    # Respect comment_limit
+                    if len(workflow_comments) >= comment_limit:
+                        break
+
+            # Build result for this post
+            post_result = {
+                "post_id": submission.id,
+                "post_title": submission.title if hasattr(submission, 'title') else "",
+                "post_url": submission.url if hasattr(submission, 'url') else f"https://reddit.com/comments/{submission.id}",
+                "workflow_comments": workflow_comments
+            }
+            response.add_result(post_result)
+
+            logger.debug(f"Processed post {post_id}: found {len(workflow_comments)} workflow comments")
+
+        except BudgetExhaustedError:
+            response.add_error(post_id, "Request budget exhausted")
+            break
+        except (prawcore.exceptions.NotFound, prawcore.exceptions.Forbidden) as e:
+            logger.warning(f"Cannot access post {post_id}: {e}")
+            response.add_error(post_id, f"Post inaccessible: {type(e).__name__}")
+        except Exception as e:
+            logger.error(f"Error processing post {post_id}: {e}")
+            response.add_error(post_id, str(e))
+
+    # Add executor stats to response
+    response.stats = executor.get_stats()
+
+    logger.info(f"Workflow thread inspection complete: {len(response.results)} posts processed, {len(response.errors)} errors")
+
+    return response.to_response()
+
+
 if __name__ == "__main__":
     logger.info("Starting Reddit Scanner MCP Server...")
     logger.info(f"Server name: reddit_opportunity_finder_enhanced")
