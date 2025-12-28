@@ -1434,6 +1434,300 @@ async def workflow_thread_inspector(
     return response.to_response()
 
 
+# Default page keywords for wiki_tool_extractor
+DEFAULT_PAGE_KEYWORDS = [
+    "tools", "software", "resources", "guide", "faq", "index", "wiki", "recommended"
+]
+
+
+def normalize_url(url: str) -> str:
+    """Normalize URL for deduplication by removing trailing slashes and query params.
+
+    Args:
+        url: The URL to normalize
+
+    Returns:
+        Normalized URL string
+    """
+    # Remove trailing slash
+    url = url.rstrip('/')
+    # Remove query parameters
+    if '?' in url:
+        url = url.split('?')[0]
+    # Remove fragment
+    if '#' in url:
+        url = url.split('#')[0]
+    return url.lower()
+
+
+def extract_tool_name_from_domain(url: str) -> str:
+    """Extract a tool name from a URL's domain.
+
+    Args:
+        url: The URL to extract domain from
+
+    Returns:
+        Capitalized tool name derived from domain
+    """
+    try:
+        # Extract domain from URL
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        domain = parsed.netloc or parsed.path.split('/')[0]
+
+        # Remove common prefixes and suffixes
+        domain = domain.replace('www.', '')
+
+        # Get the main part of the domain (before the TLD)
+        parts = domain.split('.')
+        if len(parts) >= 2:
+            # Use the main domain name, not the TLD
+            name = parts[0]
+        else:
+            name = domain
+
+        # Capitalize first letter
+        return name.capitalize()
+    except Exception:
+        return "Unknown"
+
+
+@mcp.tool()
+async def wiki_tool_extractor(
+    subreddit_names: List[str],
+    scan_sidebar: bool = True,
+    scan_wiki: bool = True,
+    page_keywords: List[str] = None,
+    batch_delay: float = 1.5
+) -> List[TextContent]:
+    """Scans subreddit wikis and sidebars for mentioned tools and software.
+
+    Extracts links from subreddit sidebars and wiki pages to discover tools,
+    software, and resources mentioned by the community.
+
+    Args:
+        subreddit_names: List of subreddit names to scan (e.g., ["productivity", "selfhosted"])
+        scan_sidebar: Whether to scan sidebar/description for links (default: True)
+        scan_wiki: Whether to scan wiki pages for links (default: True)
+        page_keywords: Wiki page name filters. If None, uses defaults like
+            "tools", "software", "resources", "guide", "faq", etc.
+        batch_delay: Seconds between API requests for rate limiting (default: 1.5)
+
+    Returns:
+        ToolResponse envelope with extracted tools per subreddit, each containing:
+        - subreddit: The subreddit name
+        - tools: List of tools found, each with:
+            - name: Tool name (from link text or inferred from domain)
+            - url: The tool's URL
+            - sources: List of sources where the tool was found (e.g., ["sidebar", "wiki/tools"])
+    """
+    # Create response envelope
+    response = ToolResponse(tool_name="wiki_tool_extractor")
+    pages_scanned = 0
+
+    # Apply default page keywords if None provided
+    keywords_used = page_keywords if page_keywords is not None else DEFAULT_PAGE_KEYWORDS
+
+    # Input validation: subreddit_names
+    if not isinstance(subreddit_names, list) or not subreddit_names:
+        response.add_error("subreddit_names", "Must be a non-empty list of subreddit names")
+        response.extra_metadata["pages_scanned"] = pages_scanned
+        return response.to_response()
+
+    for name in subreddit_names:
+        if not validate_subreddit_name(name):
+            response.add_error("subreddit_names", f"Invalid subreddit name format: {name}")
+            response.extra_metadata["pages_scanned"] = pages_scanned
+            return response.to_response()
+
+    # Input validation: batch_delay
+    if not validate_batch_delay(batch_delay):
+        response.add_error("batch_delay", "Must be between 0.5 and 10.0 seconds")
+        response.extra_metadata["pages_scanned"] = pages_scanned
+        return response.to_response()
+
+    # Set up rate limiting
+    config = RateLimitConfig(batch_delay=batch_delay, request_budget=100)
+    executor = RateLimitedExecutor(config)
+
+    # Regex patterns for link extraction
+    markdown_link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+    bare_url_pattern = re.compile(r'https?://[^\s\)\]<>]+')
+
+    def extract_links_from_text(text: str, source: str) -> List[Dict[str, Any]]:
+        """Extract links from text and return tool info with source."""
+        tools = []
+        seen_urls = set()
+
+        # Extract markdown links [text](url)
+        for match in markdown_link_pattern.finditer(text):
+            link_text = match.group(1).strip()
+            url = match.group(2).strip()
+
+            # Skip non-http links and Reddit internal links
+            if not url.startswith(('http://', 'https://')):
+                continue
+            if 'reddit.com' in url.lower():
+                continue
+
+            normalized = normalize_url(url)
+            if normalized not in seen_urls:
+                seen_urls.add(normalized)
+                tools.append({
+                    "name": link_text,
+                    "url": url.rstrip('/'),
+                    "source": source
+                })
+
+        # Extract bare URLs
+        for match in bare_url_pattern.finditer(text):
+            url = match.group(0).strip()
+
+            # Skip Reddit internal links
+            if 'reddit.com' in url.lower():
+                continue
+
+            # Check if this URL was already captured as a markdown link
+            normalized = normalize_url(url)
+            if normalized not in seen_urls:
+                seen_urls.add(normalized)
+                tools.append({
+                    "name": extract_tool_name_from_domain(url),
+                    "url": url.rstrip('/'),
+                    "source": source
+                })
+
+        return tools
+
+    def page_matches_keywords(page_name: str, keywords: List[str]) -> bool:
+        """Check if wiki page name matches any keyword."""
+        page_lower = page_name.lower()
+        return any(kw.lower() in page_lower for kw in keywords)
+
+    def merge_tools(tools_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge tools by normalized URL, combining sources."""
+        merged = {}
+
+        for tool in tools_list:
+            normalized = normalize_url(tool["url"])
+
+            if normalized in merged:
+                # Add source to existing tool
+                if tool["source"] not in merged[normalized]["sources"]:
+                    merged[normalized]["sources"].append(tool["source"])
+                # Keep the first name (from link text if available)
+            else:
+                merged[normalized] = {
+                    "name": tool["name"],
+                    "url": tool["url"],
+                    "sources": [tool["source"]]
+                }
+
+        return list(merged.values())
+
+    logger.info(f"Starting wiki tool extraction for {len(subreddit_names)} subreddits")
+
+    for subreddit_name in subreddit_names:
+        subreddit_tools = []
+
+        try:
+            reddit = await RedditClient.get()
+
+            # Fetch subreddit
+            subreddit = await executor.execute(
+                lambda name=subreddit_name: reddit.subreddit(name)
+            )
+
+            # Scan sidebar if enabled
+            if scan_sidebar:
+                sidebar_text = ""
+
+                # Get description (sidebar markdown)
+                if hasattr(subreddit, 'description') and subreddit.description:
+                    sidebar_text += subreddit.description + "\n"
+
+                # Get public description
+                if hasattr(subreddit, 'public_description') and subreddit.public_description:
+                    sidebar_text += subreddit.public_description + "\n"
+
+                if sidebar_text:
+                    sidebar_tools = extract_links_from_text(sidebar_text, "sidebar")
+                    subreddit_tools.extend(sidebar_tools)
+
+            # Scan wiki if enabled
+            if scan_wiki:
+                try:
+                    # List wiki pages
+                    wiki_pages = await executor.execute(
+                        lambda sub=subreddit: list(sub.wiki)
+                    )
+
+                    for page in wiki_pages:
+                        page_name = getattr(page, 'name', str(page))
+
+                        # Filter by keywords
+                        if not page_matches_keywords(page_name, keywords_used):
+                            continue
+
+                        try:
+                            # Fetch page content
+                            page_content = await executor.execute(
+                                lambda p=page: p.content_md if hasattr(p, 'content_md') else ""
+                            )
+
+                            pages_scanned += 1
+
+                            if page_content:
+                                wiki_tools = extract_links_from_text(
+                                    page_content,
+                                    f"wiki/{page_name}"
+                                )
+                                subreddit_tools.extend(wiki_tools)
+
+                        except (prawcore.exceptions.NotFound,
+                                prawcore.exceptions.Forbidden) as e:
+                            logger.debug(f"Cannot access wiki page {page_name} in {subreddit_name}: {e}")
+                        except Exception as e:
+                            logger.debug(f"Error reading wiki page {page_name}: {e}")
+
+                except (prawcore.exceptions.NotFound,
+                        prawcore.exceptions.Forbidden) as e:
+                    logger.debug(f"Cannot access wiki for {subreddit_name}: {e}")
+                except Exception as e:
+                    logger.debug(f"Error listing wiki pages for {subreddit_name}: {e}")
+
+            # Merge and deduplicate tools for this subreddit
+            merged_tools = merge_tools(subreddit_tools)
+
+            # Build result for this subreddit
+            result = {
+                "subreddit": subreddit_name,
+                "tools": merged_tools
+            }
+            response.add_result(result)
+
+            logger.debug(f"Processed {subreddit_name}: found {len(merged_tools)} tools")
+
+        except BudgetExhaustedError:
+            response.add_error(subreddit_name, "Request budget exhausted")
+            break
+        except (prawcore.exceptions.NotFound, prawcore.exceptions.Forbidden) as e:
+            logger.warning(f"Cannot access subreddit {subreddit_name}: {e}")
+            response.add_error(subreddit_name, f"Subreddit inaccessible: {type(e).__name__}")
+        except Exception as e:
+            logger.error(f"Error processing subreddit {subreddit_name}: {e}")
+            response.add_error(subreddit_name, str(e))
+
+    # Add executor stats and pages_scanned to response
+    response.stats = executor.get_stats()
+    response.extra_metadata["pages_scanned"] = pages_scanned
+
+    logger.info(f"Wiki tool extraction complete: {len(response.results)} subreddits processed, "
+                f"{pages_scanned} pages scanned, {len(response.errors)} errors")
+
+    return response.to_response()
+
+
 if __name__ == "__main__":
     logger.info("Starting Reddit Scanner MCP Server...")
     logger.info(f"Server name: reddit_opportunity_finder_enhanced")
