@@ -877,6 +877,22 @@ async def niche_community_discoverer(
         response.extra_metadata["keywords_searched"] = topic_keywords
         return response.to_response()
 
+    # Validate subscriber range
+    if not isinstance(min_subscribers, int) or min_subscribers < 0:
+        response.add_error("min_subscribers", "Must be a non-negative integer")
+        return response.to_response()
+    if not isinstance(max_subscribers, int) or max_subscribers < 0:
+        response.add_error("max_subscribers", "Must be a non-negative integer")
+        return response.to_response()
+    if min_subscribers > max_subscribers:
+        response.add_error("subscriber_range", "min_subscribers must be <= max_subscribers")
+        return response.to_response()
+
+    # Validate max_communities
+    if not isinstance(max_communities, int) or max_communities < 1:
+        response.add_error("max_communities", "Must be a positive integer")
+        return response.to_response()
+
     # Set up rate limiting
     config = RateLimitConfig(batch_delay=batch_delay, request_budget=100)
     executor = RateLimitedExecutor(config)
@@ -887,7 +903,7 @@ async def niche_community_discoverer(
     # Regex pattern to extract subreddit links from sidebar
     subreddit_pattern = re.compile(r'/r/([A-Za-z0-9_]+)', re.IGNORECASE)
 
-    async def is_valid_community(subreddit) -> bool:
+    def is_valid_community(subreddit) -> bool:
         """Check if subreddit meets subscriber criteria and is public."""
         try:
             if not hasattr(subreddit, 'subscribers'):
@@ -939,7 +955,7 @@ async def niche_community_discoverer(
                     continue
 
                 # Validate subscriber range
-                if await is_valid_community(subreddit):
+                if is_valid_community(subreddit):
                     discovered[name_lower] = extract_community_data(subreddit, "search")
                     logger.debug(f"Discovered via search: {subreddit.display_name}")
 
@@ -992,7 +1008,7 @@ async def niche_community_discoverer(
                             lambda m=match: reddit.subreddit(m)
                         )
 
-                        if await is_valid_community(linked_sub):
+                        if is_valid_community(linked_sub):
                             discovered[match_lower] = extract_community_data(
                                 linked_sub,
                                 f"sidebar of {community['name']}"

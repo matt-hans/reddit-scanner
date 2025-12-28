@@ -364,3 +364,43 @@ class TestNicheCommunityDiscovererV2:
 
         assert "keywords_searched" in response["metadata"], "metadata should contain keywords_searched"
         assert set(response["metadata"]["keywords_searched"]) == set(keywords), "keywords_searched should match input"
+
+    @pytest.mark.asyncio
+    async def test_input_validation_negative_min_subscribers(self):
+        """Test that negative min_subscribers is rejected."""
+        from reddit_scanner import niche_community_discoverer
+
+        result = await niche_community_discoverer(
+            topic_keywords=["python"],
+            min_subscribers=-1
+        )
+        data = json.loads(result[0].text)
+        assert len(data["errors"]) > 0
+        assert data["partial"] is True
+
+    @pytest.mark.asyncio
+    async def test_input_validation_invalid_subscriber_range(self):
+        """Test that min > max subscriber range is rejected."""
+        from reddit_scanner import niche_community_discoverer
+
+        result = await niche_community_discoverer(
+            topic_keywords=["python"],
+            min_subscribers=100000,
+            max_subscribers=1000
+        )
+        data = json.loads(result[0].text)
+        assert len(data["errors"]) > 0
+        assert data["partial"] is True
+
+    @pytest.mark.asyncio
+    async def test_input_validation_invalid_max_communities(self):
+        """Test that zero or negative max_communities is rejected."""
+        from reddit_scanner import niche_community_discoverer
+
+        result = await niche_community_discoverer(
+            topic_keywords=["python"],
+            max_communities=0
+        )
+        data = json.loads(result[0].text)
+        assert len(data["errors"]) > 0
+        assert data["partial"] is True
