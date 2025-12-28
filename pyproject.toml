@@ -1,7 +1,7 @@
 [project]
 name = "reddit-scanner"
 version = "0.1.0"
-description = "Add your description here"
+description = "Market Intelligence Spider - Reddit analysis MCP server"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,3 +10,17 @@ dependencies = [
     "praw>=7.7.0",
     "python-dotenv>=1.0.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=4.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["reddit_scanner"]
