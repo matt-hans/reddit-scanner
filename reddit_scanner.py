@@ -95,6 +95,7 @@ class ToolResponse:
     errors: List[Dict[str, Any]] = field(default_factory=list)
     stats: Dict[str, Any] = field(default_factory=dict)
     partial: bool = False
+    extra_metadata: Dict[str, Any] = field(default_factory=dict)
 
     def add_result(self, item: Dict[str, Any]) -> None:
         """Add a result item to the response.
@@ -120,13 +121,16 @@ class ToolResponse:
         Returns:
             List containing a single TextContent with JSON envelope
         """
+        metadata = {
+            "tool": self.tool_name,
+            "timestamp": datetime.now().isoformat(),
+            "stats": self.stats,
+            **self.extra_metadata
+        }
+
         envelope = {
             "results": self.results,
-            "metadata": {
-                "tool": self.tool_name,
-                "timestamp": datetime.now().isoformat(),
-                "stats": self.stats
-            },
+            "metadata": metadata,
             "errors": self.errors,
             "partial": self.partial
         }
@@ -831,141 +835,204 @@ async def subreddit_engagement_analyzer(
     return safe_json_response(result)
 
 @mcp.tool()
-@input_validator(
-    ("seed_subreddits", "seed_subreddits", "subreddit_list"),
-    ("min_subscribers", "min_subscribers", "positive_int"),
-    ("max_subscribers", "max_subscribers", "positive_int")
-)
 async def niche_community_discoverer(
-    seed_subreddits: List[str],
-    min_subscribers: int = 1000,
-    max_subscribers: int = 100000,
-    activity_threshold: float = 0.3,
-    related_depth: int = 1
+    topic_keywords: List[str],
+    min_subscribers: int = 5000,
+    max_subscribers: int = 200000,
+    max_communities: int = 50,
+    spider_sidebar: bool = True,
+    batch_delay: float = 1.5
 ) -> List[TextContent]:
-    """Finds niche subreddits with unmet software needs.
+    """Discovers niche communities using keyword search and sidebar spidering.
+
+    Finds subreddits related to specified topics by searching Reddit and
+    optionally crawling sidebar links to discover related communities.
 
     Args:
-        seed_subreddits: Starting subreddits
-        min_subscribers: Minimum size
-        max_subscribers: Maximum size
-        activity_threshold: Posts per day threshold
-        related_depth: Depth of related subreddit exploration
-    """
-    # Use provided seeds or defaults
-    if not seed_subreddits:
-        seed_subreddits = ["learnprogramming", "webdev", "entrepreneur", "smallbusiness"]
-        logger.info(f"Using default seed subreddits: {seed_subreddits}")
-    
-    discovered_communities = []
-    failed_subreddits = []
-    
-    # Simplified approach: analyze seed subreddits directly
-    for subreddit_name in seed_subreddits:
-        try:
-            community_data = await _analyze_community_safely(
-                subreddit_name, min_subscribers, max_subscribers, activity_threshold
-            )
-            
-            if community_data:
-                discovered_communities.append(community_data)
-                logger.info(f"Discovered community: {subreddit_name}")
-            else:
-                failed_subreddits.append({
-                    "name": subreddit_name, 
-                    "reason": "Did not meet criteria"
-                })
-                
-        except Exception as e:
-            logger.error(f"Error analyzing {subreddit_name}: {e}")
-            failed_subreddits.append({
-                "name": subreddit_name,
-                "reason": str(e)
-            })
-    
-    # Sort by score (subscriber count * activity rate)
-    discovered_communities.sort(key=lambda x: x.get("score", 0), reverse=True)
-    
-    result = {
-        "communities": discovered_communities[:20],  # Limit results
-        "failed_subreddits": failed_subreddits,
-        "total_discovered": len(discovered_communities),
-        "seed_subreddits": seed_subreddits,
-        "criteria": {
-            "min_subscribers": min_subscribers,
-            "max_subscribers": max_subscribers,
-            "activity_threshold": activity_threshold
-        }
-    }
-    
-    return safe_json_response(result)
+        topic_keywords: Intent-based search terms (e.g., ["python automation", "productivity tools"])
+        min_subscribers: Minimum subscriber count to include (default: 5000)
+        max_subscribers: Maximum subscriber count to include (default: 200000)
+        max_communities: Hard cap on total communities to return (default: 50)
+        spider_sidebar: Enable/disable sidebar crawl for related communities (default: True)
+        batch_delay: Seconds between API batches for rate limiting (default: 1.5)
 
-async def _analyze_community_safely(
-    subreddit_name: str, 
-    min_subscribers: int,
-    max_subscribers: int, 
-    activity_threshold: float
-) -> Optional[Dict[str, Any]]:
-    """Safely analyze a subreddit community."""
-    try:
-        reddit = await RedditClient.get()
-        subreddit = await RedditClient.execute(
-            lambda: reddit.subreddit(subreddit_name)
-        )
-        
-        # Check if we can access basic subreddit info
-        if not hasattr(subreddit, 'subscribers'):
-            return None
-            
-        # Check subscriber count
-        if not (min_subscribers <= subreddit.subscribers <= max_subscribers):
-            logger.debug(f"Skipping {subreddit_name}: {subreddit.subscribers} subscribers outside range")
-            return None
-        
-        # Get recent posts to calculate activity
-        posts = await RedditClient.execute(
-            lambda: list(subreddit.new(limit=20))
-        )
-        
-        if not posts:
-            logger.debug(f"Skipping {subreddit_name}: no recent posts")
-            return None
-        
-        # Calculate activity rate (posts per day)
-        if len(posts) > 1:
-            newest_post = posts[0]
-            oldest_post = posts[-1]
-            time_span_hours = (newest_post.created_utc - oldest_post.created_utc) / 3600
-            time_span_days = max(time_span_hours / 24, 1)  # At least 1 day
-            activity_rate = len(posts) / time_span_days
-        else:
-            activity_rate = 0.1  # Very low activity
-        
-        if activity_rate < activity_threshold:
-            logger.debug(f"Skipping {subreddit_name}: activity rate {activity_rate:.2f} below threshold")
-            return None
-        
-        # Calculate community score
-        score = (subreddit.subscribers / 10000) * activity_rate
-        
+    Returns:
+        ToolResponse envelope with discovered communities, each containing:
+        - name: Subreddit display name
+        - subscribers: Subscriber count
+        - source: "search" or "sidebar of {parent}"
+        - description: Public description
+    """
+    # Create response envelope
+    response = ToolResponse(tool_name="niche_community_discoverer")
+
+    # Input validation
+    if not validate_keyword_list(topic_keywords):
+        response.add_error("topic_keywords", "Must be a non-empty list of valid keywords (2-50 chars each)")
+        response.extra_metadata["keywords_searched"] = []
+        return response.to_response()
+
+    if not validate_batch_delay(batch_delay):
+        response.add_error("batch_delay", "Must be between 0.5 and 10.0 seconds")
+        response.extra_metadata["keywords_searched"] = topic_keywords
+        return response.to_response()
+
+    # Set up rate limiting
+    config = RateLimitConfig(batch_delay=batch_delay, request_budget=100)
+    executor = RateLimitedExecutor(config)
+
+    # Track discovered communities by name for deduplication
+    discovered: Dict[str, Dict[str, Any]] = {}
+
+    # Regex pattern to extract subreddit links from sidebar
+    subreddit_pattern = re.compile(r'/r/([A-Za-z0-9_]+)', re.IGNORECASE)
+
+    async def is_valid_community(subreddit) -> bool:
+        """Check if subreddit meets subscriber criteria and is public."""
+        try:
+            if not hasattr(subreddit, 'subscribers'):
+                return False
+            if not (min_subscribers <= subreddit.subscribers <= max_subscribers):
+                return False
+            # Check if public
+            sub_type = getattr(subreddit, 'subreddit_type', 'public')
+            if sub_type not in ('public', 'restricted'):
+                return False
+            return True
+        except Exception:
+            return False
+
+    def extract_community_data(subreddit, source: str) -> Dict[str, Any]:
+        """Extract standardized community data from subreddit object."""
         return {
-            "name": subreddit_name,
+            "name": subreddit.display_name,
             "subscribers": subreddit.subscribers,
-            "activity_rate": round(activity_rate, 2),
-            "score": round(score, 2),
-            "description": (subreddit.public_description[:200] 
-                          if hasattr(subreddit, 'public_description') and subreddit.public_description 
-                          else "No description available"),
-            "url": f"https://reddit.com/r/{subreddit_name}"
+            "source": source,
+            "description": (subreddit.public_description[:200]
+                          if hasattr(subreddit, 'public_description') and subreddit.public_description
+                          else "No description available")
         }
-        
-    except (prawcore.exceptions.Forbidden, 
-            prawcore.exceptions.NotFound) as e:
-        logger.warning(f"Cannot access subreddit {subreddit_name}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Error analyzing {subreddit_name}: {e}")
-        return None
+
+    # Phase 1: Primary Search
+    logger.info(f"Starting community discovery with keywords: {topic_keywords}")
+
+    for keyword in topic_keywords:
+        if len(discovered) >= max_communities:
+            logger.info(f"Reached max_communities cap ({max_communities}), stopping search")
+            break
+
+        try:
+            reddit = await RedditClient.get()
+
+            # Search for subreddits matching keyword
+            search_results = await executor.execute(
+                lambda kw=keyword: list(reddit.subreddits.search(kw, limit=20))
+            )
+
+            for subreddit in search_results:
+                if len(discovered) >= max_communities:
+                    break
+
+                # Skip if already discovered
+                name_lower = subreddit.display_name.lower()
+                if name_lower in discovered:
+                    continue
+
+                # Validate subscriber range
+                if await is_valid_community(subreddit):
+                    discovered[name_lower] = extract_community_data(subreddit, "search")
+                    logger.debug(f"Discovered via search: {subreddit.display_name}")
+
+        except BudgetExhaustedError:
+            response.add_error(keyword, "Request budget exhausted")
+            response.partial = True
+            break
+        except Exception as e:
+            logger.error(f"Error searching keyword '{keyword}': {e}")
+            response.add_error(keyword, str(e))
+
+    # Phase 2: Sidebar Spider (if enabled and under cap)
+    if spider_sidebar and len(discovered) < max_communities:
+        logger.info("Starting sidebar spider phase")
+
+        # Get list of communities to spider (copy to avoid modification during iteration)
+        communities_to_spider = list(discovered.values())
+
+        for community in communities_to_spider:
+            if len(discovered) >= max_communities:
+                logger.info(f"Reached max_communities cap ({max_communities}), stopping spider")
+                break
+
+            try:
+                reddit = await RedditClient.get()
+
+                # Fetch the subreddit to get sidebar description
+                subreddit = await executor.execute(
+                    lambda name=community["name"]: reddit.subreddit(name)
+                )
+
+                # Get sidebar text (description field contains sidebar in old reddit)
+                sidebar_text = getattr(subreddit, 'description', '') or ''
+
+                # Extract r/SubredditName patterns
+                matches = subreddit_pattern.findall(sidebar_text)
+
+                for match in matches:
+                    if len(discovered) >= max_communities:
+                        break
+
+                    # Skip if already discovered
+                    match_lower = match.lower()
+                    if match_lower in discovered:
+                        continue
+
+                    try:
+                        # Validate the linked subreddit
+                        linked_sub = await executor.execute(
+                            lambda m=match: reddit.subreddit(m)
+                        )
+
+                        if await is_valid_community(linked_sub):
+                            discovered[match_lower] = extract_community_data(
+                                linked_sub,
+                                f"sidebar of {community['name']}"
+                            )
+                            logger.debug(f"Discovered via sidebar of {community['name']}: {match}")
+
+                    except BudgetExhaustedError:
+                        response.add_error(f"sidebar:{match}", "Request budget exhausted")
+                        response.partial = True
+                        break
+                    except (prawcore.exceptions.NotFound, prawcore.exceptions.Forbidden):
+                        # Subreddit doesn't exist or is private
+                        logger.debug(f"Skipping inaccessible sidebar link: r/{match}")
+                        continue
+                    except Exception as e:
+                        logger.debug(f"Error validating sidebar link r/{match}: {e}")
+                        continue
+
+            except BudgetExhaustedError:
+                response.add_error(f"spider:{community['name']}", "Request budget exhausted")
+                response.partial = True
+                break
+            except Exception as e:
+                logger.debug(f"Error spidering sidebar of {community['name']}: {e}")
+                continue
+
+    # Build response
+    response.results = list(discovered.values())
+    response.stats = {
+        **executor.get_stats(),
+        "communities_from_search": len([c for c in discovered.values() if c["source"] == "search"]),
+        "communities_from_sidebar": len([c for c in discovered.values() if c["source"].startswith("sidebar of")])
+    }
+
+    # Add keywords_searched to metadata at top level (per API spec)
+    response.extra_metadata["keywords_searched"] = topic_keywords
+
+    logger.info(f"Community discovery complete: {len(discovered)} communities found")
+
+    return response.to_response()
 
 @mcp.tool()
 @input_validator(
