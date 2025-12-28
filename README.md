@@ -8,10 +8,11 @@ An MCP (Model Context Protocol) server that provides AI-powered tools for analyz
 - **Solution Request Tracking**: Find posts where users are actively seeking software recommendations
 - **Workflow Analysis**: Discover repetitive tasks and automation opportunities
 - **Competitive Intelligence**: Monitor competitor mentions and limitations
-- **Community Discovery**: Find niche communities with unmet software needs
+- **Community Discovery**: Find niche communities with unmet software needs (with sidebar spidering)
 - **Trend Analysis**: Track the evolution of problems and emerging needs over time
 - **User Persona Building**: Extract user profiles and behavioral patterns
 - **Opportunity Scoring**: Validate and rank software ideas based on market signals
+- **Market Intelligence Spider**: Deep-dive tools for workflow thread inspection and wiki/sidebar tool extraction
 
 ## Installation
 
@@ -83,7 +84,12 @@ To use this server with an MCP client (like Claude Desktop), add it to your MCP 
 
 ### Testing
 
-Run the included test client:
+Run the full test suite (101 tests):
+```bash
+pytest tests/ -v
+```
+
+Run the included MCP test client:
 ```bash
 python test-mcp-client.py
 ```
@@ -148,17 +154,21 @@ Analyzes engagement patterns to validate problem severity.
 
 **Example Use Case**: Validate which pain points get the most community engagement.
 
-### 6. niche_community_discoverer
-Finds smaller, specialized subreddits with unmet software needs.
+### 6. niche_community_discoverer (v2)
+Finds smaller, specialized subreddits with unmet software needs. Now supports keyword-based discovery and sidebar spidering.
 
 **Parameters:**
-- `seed_subreddits`: Starting subreddits
+- `seed_subreddits`: Starting subreddits (optional if using topic_keywords)
+- `topic_keywords`: Keywords to search for communities (e.g., ["automation", "workflow"])
 - `min_subscribers`: Minimum community size
 - `max_subscribers`: Maximum community size
 - `activity_threshold`: Minimum posts per day
 - `related_depth`: How deep to explore related subreddits
+- `spider_sidebar`: Whether to spider sidebar links for related communities
+- `max_communities`: Maximum communities to return
+- `batch_delay`: Delay between API request batches (for rate limiting)
 
-**Example Use Case**: Discover niche communities related to r/productivity that might need specialized tools.
+**Example Use Case**: Discover niche communities related to r/productivity that might need specialized tools, or find communities by topic keywords like "home automation".
 
 ### 7. temporal_trend_analyzer
 Tracks how problems and discussions evolve over time.
@@ -193,6 +203,31 @@ Scores and ranks software opportunities based on multiple factors.
 
 **Example Use Case**: Rank discovered opportunities by market potential and feasibility.
 
+### 10. workflow_thread_inspector
+Expands comment trees to find workflow details, tool mentions, and automation opportunities in discussions.
+
+**Parameters:**
+- `post_ids`: List of Reddit post IDs to inspect
+- `workflow_signals`: Keywords indicating workflow discussions (e.g., ["I use", "my process", "step by step"])
+- `comment_limit`: Maximum comments to analyze per post
+- `expand_depth`: How deep to expand comment trees
+- `min_score`: Minimum comment score to include
+- `batch_delay`: Delay between API request batches
+
+**Example Use Case**: Deep-dive into a popular "what's your workflow" thread to extract tool chains and automation ideas.
+
+### 11. wiki_tool_extractor
+Scans subreddit wikis and sidebars for recommended tools, software, and resources.
+
+**Parameters:**
+- `subreddit_names`: List of subreddits to scan
+- `scan_sidebar`: Whether to scan sidebar content
+- `scan_wiki`: Whether to scan wiki pages
+- `page_keywords`: Keywords to filter relevant wiki pages (e.g., ["tools", "software", "resources"])
+- `batch_delay`: Delay between API request batches
+
+**Example Use Case**: Extract the official tool recommendations from r/productivity's wiki and sidebar.
+
 ## Example Workflows
 
 ### Finding SaaS Opportunities
@@ -215,6 +250,13 @@ Scores and ranks software opportunities based on multiple factors.
 2. Apply `subreddit_pain_point_scanner` with competitor-related keywords
 3. Run `user_workflow_analyzer` to find workflows using competitor tools
 
+### Deep Market Intelligence (Spider Tools)
+
+1. Start with `niche_community_discoverer` using topic keywords to find relevant communities
+2. Use `wiki_tool_extractor` to discover what tools communities already recommend
+3. Apply `workflow_thread_inspector` on popular posts to understand actual user workflows
+4. Identify gaps between recommended tools and actual workflow pain points
+
 ## Output Format
 
 All tools return JSON-formatted results with relevant data:
@@ -227,13 +269,29 @@ All tools return JSON-formatted results with relevant data:
 }
 ```
 
+Market Intelligence Spider tools use a unified `ToolResponse` envelope:
+
+```json
+{
+  "results": [...],
+  "metadata": {
+    "requests_made": 15,
+    "execution_time_seconds": 2.3
+  },
+  "errors": [],
+  "partial": false
+}
+```
+
 Results include URLs, scores, and extracted insights for easy analysis.
 
 ## Rate Limits and Best Practices
 
 - Reddit API has rate limits (60 requests per minute for OAuth)
 - The server uses PRAW's built-in rate limiting
+- Market Intelligence Spider tools use `RateLimitedExecutor` with configurable `batch_delay` for respectful crawling
 - Start with smaller `limit` values to test
+- Use `batch_delay` parameter (default 1.0 second) to control request pacing
 - Cache results when doing repeated analysis
 - Respect Reddit's terms of service
 
@@ -259,10 +317,14 @@ Ensure your `.env` file exists and contains valid `REDDIT_CLIENT_ID` and `REDDIT
 ```
 reddit-scanner/
 ├── reddit_scanner.py     # Main MCP server implementation
-├── test-mcp-client.py    # Test client
+├── tests/                # Test suite (101 tests)
+│   ├── conftest.py       # Pytest fixtures
+│   └── test_*.py         # Tool and infrastructure tests
+├── test-mcp-client.py    # Manual MCP test client
 ├── pyproject.toml        # Project configuration
 ├── .env                  # Environment variables (create this)
-└── README.md            # This file
+├── CLAUDE.md             # Development guidance
+└── README.md             # This file
 ```
 
 ### Adding New Tools

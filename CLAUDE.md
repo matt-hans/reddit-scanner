@@ -17,8 +17,14 @@ uv pip install -e .
 # Run the MCP server
 python reddit_scanner.py
 
-# Test the MCP server
+# Test the MCP server (basic client test)
 python test-mcp-client.py
+
+# Run the full test suite (101 tests)
+pytest tests/ -v
+
+# Run tests with coverage
+pytest tests/ --cov=. --cov-report=term-missing
 ```
 
 ## Environment Setup
@@ -42,7 +48,7 @@ To obtain Reddit API credentials:
 
 1. **MCP Server (reddit_scanner.py)**
    - Uses FastMCP framework for server implementation
-   - Implements 10 specialized tools for Reddit analysis
+   - Implements 11 specialized tools for Reddit analysis
    - Handles Reddit API authentication via environment variables
    - All tools return JSON-formatted results wrapped in TextContent
 
@@ -52,10 +58,22 @@ To obtain Reddit API credentials:
    - **Workflow Analysis**: `user_workflow_analyzer` - Discovers automation opportunities
    - **Competitive Intelligence**: `competitor_mention_monitor` - Tracks competitor limitations
    - **Engagement Metrics**: `subreddit_engagement_analyzer` - Validates problem severity
-   - **Community Discovery**: `niche_community_discoverer` - Finds underserved communities
+   - **Community Discovery**: `niche_community_discoverer` (v2) - Finds underserved communities with sidebar spidering
    - **Trend Analysis**: `temporal_trend_analyzer` - Tracks problem evolution
    - **User Research**: `user_persona_extractor` - Builds user profiles
    - **Opportunity Scoring**: `idea_validation_scorer` - Ranks software opportunities
+
+3. **Market Intelligence Spider Tools**
+   - **Workflow Thread Inspector**: `workflow_thread_inspector` - Expands comment trees to find workflow details, tool mentions, and pain points in discussions
+   - **Wiki Tool Extractor**: `wiki_tool_extractor` - Scans subreddit wikis and sidebars for recommended tools and software
+
+### Shared Infrastructure
+
+The Market Intelligence Spider tools use shared infrastructure for respectful crawling:
+
+- **RateLimitConfig**: Configuration dataclass for rate limiting with `batch_delay` (seconds between batches) and `request_budget` (max API requests)
+- **RateLimitedExecutor**: Wraps async operations with rate limiting, budget tracking, and graceful degradation
+- **ToolResponse**: Unified response envelope with `results`, `metadata`, `errors`, and `partial` flag for incomplete results
 
 ### Key Design Patterns
 
@@ -63,7 +81,8 @@ To obtain Reddit API credentials:
 2. **Error Handling**: Each tool has try-except blocks with logging for resilience
 3. **Flexible Parameters**: Most tools have sensible defaults for optional parameters
 4. **Batch Processing**: Tools process multiple subreddits/posts and return aggregated results
-5. **Rate Limiting Awareness**: Uses PRAW's built-in rate limiting
+5. **Rate Limiting Awareness**: Uses PRAW's built-in rate limiting plus custom RateLimitedExecutor for spider tools
+6. **Async Operations**: Spider tools use async/await for efficient concurrent processing
 
 ### Data Flow
 
@@ -82,6 +101,21 @@ To obtain Reddit API credentials:
 - **Related Subreddit Discovery**: Uses multiple methods including PRAW's recommended API, widget parsing, and keyword extraction
 
 ## Testing Approach
+
+### Unit Tests
+
+The project has a comprehensive test suite with 101 passing tests covering:
+- All 11 MCP tools
+- Shared infrastructure (RateLimitConfig, RateLimitedExecutor, ToolResponse)
+- Edge cases, error handling, and input validation
+- Async operations and rate limiting behavior
+
+Run the test suite:
+```bash
+pytest tests/ -v
+```
+
+### Manual Testing
 
 The included `test-mcp-client.py` provides a basic MCP client for testing:
 - Sends initialization request
