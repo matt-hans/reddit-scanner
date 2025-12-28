@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
 Comprehensive MCP test client for Reddit Scanner
-Tests request/response for all 10 tools with placeholder values and robust debugging
+Tests request/response for all 12 tools with placeholder values and robust debugging
+
+Includes Market Intelligence Spider tools:
+- niche_community_discoverer (v2)
+- workflow_thread_inspector
+- wiki_tool_extractor
 """
 import json
 import subprocess
@@ -246,13 +251,14 @@ def test_all_tools():
             {
                 "name": "niche_community_discoverer",
                 "args": {
-                    "seed_subreddits": ["startups", "solopreneur"],
+                    "topic_keywords": ["python automation", "productivity tools"],
                     "min_subscribers": 5000,
-                    "max_subscribers": 50000,
-                    "activity_threshold": 0.3,
-                    "related_depth": 1
+                    "max_subscribers": 200000,
+                    "max_communities": 20,
+                    "spider_sidebar": True,
+                    "batch_delay": 1.5
                 },
-                "description": "Discovering niche communities with unmet needs"
+                "description": "Discovering niche communities using keyword search and sidebar spidering"
             },
             {
                 "name": "temporal_trend_analyzer",
@@ -291,6 +297,30 @@ def test_all_tools():
                     }
                 },
                 "description": "Scoring software opportunity ideas"
+            },
+            # Market Intelligence Spider Tools
+            {
+                "name": "workflow_thread_inspector",
+                "args": {
+                    "post_ids": ["1abc2d3", "4efg5h6"],  # Valid format placeholder IDs
+                    "workflow_signals": ["step", "process", "export", "manual", "csv"],
+                    "comment_limit": 50,
+                    "expand_depth": 3,
+                    "min_score": 1,
+                    "batch_delay": 1.5
+                },
+                "description": "Inspecting comment threads for workflow details"
+            },
+            {
+                "name": "wiki_tool_extractor",
+                "args": {
+                    "subreddit_names": ["productivity", "selfhosted"],
+                    "scan_sidebar": True,
+                    "scan_wiki": True,
+                    "page_keywords": ["tools", "software", "resources", "guide"],
+                    "batch_delay": 1.5
+                },
+                "description": "Extracting tools and software from subreddit wikis and sidebars"
             }
         ]
         
@@ -344,9 +374,10 @@ def test_all_tools():
         client.stop()
 
 if __name__ == "__main__":
-    print("🧪 Reddit Scanner MCP Tool Tester")
-    print("📝 This script tests all 10 tools with placeholder values")
-    print("🔍 Provides detailed debugging output for each response")
+    print("Reddit Scanner MCP Tool Tester")
+    print("This script tests all 12 tools with placeholder values")
+    print("Includes Market Intelligence Spider tools: niche_community_discoverer (v2), workflow_thread_inspector, wiki_tool_extractor")
+    print("Provides detailed debugging output for each response")
     print("-" * 80)
     
     # Check for .env file
