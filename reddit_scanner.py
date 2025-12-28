@@ -83,6 +83,56 @@ class RateLimitedExecutor:
         }
 
 
+@dataclass
+class ToolResponse:
+    """Unified response envelope for all MCP tools.
+
+    Provides consistent structure for tool responses including results,
+    errors, metadata, and partial completion status.
+    """
+    tool_name: str
+    results: List[Dict[str, Any]] = field(default_factory=list)
+    errors: List[Dict[str, Any]] = field(default_factory=list)
+    stats: Dict[str, Any] = field(default_factory=dict)
+    partial: bool = False
+
+    def add_result(self, item: Dict[str, Any]) -> None:
+        """Add a result item to the response.
+
+        Args:
+            item: Dictionary containing result data
+        """
+        self.results.append(item)
+
+    def add_error(self, item: str, reason: str) -> None:
+        """Add an error to the response and mark as partial.
+
+        Args:
+            item: Identifier for the item that caused the error
+            reason: Description of what went wrong
+        """
+        self.errors.append({"item": item, "reason": reason})
+        self.partial = True
+
+    def to_response(self) -> List[TextContent]:
+        """Convert to MCP TextContent response with envelope structure.
+
+        Returns:
+            List containing a single TextContent with JSON envelope
+        """
+        envelope = {
+            "results": self.results,
+            "metadata": {
+                "tool": self.tool_name,
+                "timestamp": datetime.now().isoformat(),
+                "stats": self.stats
+            },
+            "errors": self.errors,
+            "partial": self.partial
+        }
+        return safe_json_response(envelope)
+
+
 class RedditClient:
     """Robust Reddit client with health checks, retry logic, and rate limiting."""
     
