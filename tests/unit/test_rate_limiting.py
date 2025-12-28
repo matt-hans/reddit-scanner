@@ -72,3 +72,16 @@ class TestRateLimitedExecutor:
         elapsed = time.time() - start
 
         assert elapsed >= 0.1
+
+    @pytest.mark.asyncio
+    async def test_sync_function_execution(self):
+        """Test that synchronous functions are wrapped and executed."""
+        config = RateLimitConfig()
+        executor = RateLimitedExecutor(config)
+
+        def sync_operation(x, y):
+            return x + y
+
+        result = await executor.execute(sync_operation, 1, 2)
+        assert result == 3
+        assert executor.requests_made == 1

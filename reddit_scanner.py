@@ -35,7 +35,7 @@ class RateLimitConfig:
     """Configuration for respectful crawling."""
     batch_delay: float = 1.5          # Seconds between requests
     request_budget: int = 100         # Max requests per tool call
-    budget_exhausted_action: str = "stop"  # "stop" or "warn"
+    budget_exhausted_action: str = "stop"  # Currently only "stop" is implemented
 
 
 class RateLimitedExecutor:
@@ -46,7 +46,7 @@ class RateLimitedExecutor:
         self.requests_made = 0
         self.last_request_time = 0.0
 
-    async def execute(self, operation, *args, **kwargs):
+    async def execute(self, operation, *args, **kwargs) -> Any:
         """Execute operation with rate limiting."""
         # Check budget
         if self.requests_made >= self.config.request_budget:
