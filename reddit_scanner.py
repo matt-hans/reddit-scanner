@@ -314,6 +314,55 @@ def validate_positive_int(value: int, max_value: int = 1000) -> bool:
     """Validate positive integer within reasonable bounds."""
     return isinstance(value, int) and 0 < value <= max_value
 
+def validate_keyword(keyword: str) -> bool:
+    """Validate a single keyword for search operations.
+
+    Keywords must be:
+    - 2-50 characters long
+    - Contain only alphanumeric characters, spaces, hyphens, periods, or underscores
+
+    Args:
+        keyword: The keyword string to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    if not keyword or not isinstance(keyword, str):
+        return False
+    return bool(re.match(r'^[\w\s\-\.]{2,50}$', keyword))
+
+def validate_keyword_list(keywords: List[str]) -> bool:
+    """Validate a list of keywords for batch search operations.
+
+    The list must be:
+    - A non-empty list (not tuple or other sequence)
+    - All elements must be valid keywords per validate_keyword()
+
+    Args:
+        keywords: List of keyword strings to validate
+
+    Returns:
+        True if valid list with all valid keywords, False otherwise
+    """
+    if not isinstance(keywords, list) or not keywords:
+        return False
+    return all(validate_keyword(kw) for kw in keywords)
+
+def validate_batch_delay(delay: float) -> bool:
+    """Validate batch delay value for rate limiting.
+
+    Delay must be:
+    - A numeric value (int or float)
+    - Between 0.5 and 10.0 seconds (inclusive)
+
+    Args:
+        delay: The delay value in seconds
+
+    Returns:
+        True if valid, False otherwise
+    """
+    return isinstance(delay, (int, float)) and 0.5 <= delay <= 10.0
+
 def input_validator(*validation_rules):
     """Decorator for input validation with custom rules."""
     def decorator(func):
