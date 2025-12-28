@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
+from dataclasses import dataclass, field
 import logging
 
 import praw
@@ -21,6 +22,66 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# Rate Limiting Infrastructure
+class BudgetExhaustedError(Exception):
+    """Raised when request budget is exhausted."""
+    pass
+
+
+@dataclass
+class RateLimitConfig:
+    """Configuration for respectful crawling."""
+    batch_delay: float = 1.5          # Seconds between requests
+    request_budget: int = 100         # Max requests per tool call
+    budget_exhausted_action: str = "stop"  # "stop" or "warn"
+
+
+class RateLimitedExecutor:
+    """Wraps operations with budgeting and delays."""
+
+    def __init__(self, config: RateLimitConfig):
+        self.config = config
+        self.requests_made = 0
+        self.last_request_time = 0.0
+
+    async def execute(self, operation, *args, **kwargs):
+        """Execute operation with rate limiting."""
+        # Check budget
+        if self.requests_made >= self.config.request_budget:
+            raise BudgetExhaustedError(
+                f"Request budget of {self.config.request_budget} exhausted"
+            )
+
+        # Enforce delay
+        current_time = time.time()
+        elapsed = current_time - self.last_request_time
+        if self.last_request_time > 0 and elapsed < self.config.batch_delay:
+            await asyncio.sleep(self.config.batch_delay - elapsed)
+
+        # Execute operation
+        if asyncio.iscoroutinefunction(operation):
+            result = await operation(*args, **kwargs)
+        else:
+            # Wrap sync function
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, functools.partial(operation, *args, **kwargs)
+            )
+
+        self.requests_made += 1
+        self.last_request_time = time.time()
+        return result
+
+    def get_stats(self) -> dict:
+        """Return execution statistics."""
+        return {
+            "requests_made": self.requests_made,
+            "budget": self.config.request_budget,
+            "remaining": self.config.request_budget - self.requests_made
+        }
+
 
 class RedditClient:
     """Robust Reddit client with health checks, retry logic, and rate limiting."""
