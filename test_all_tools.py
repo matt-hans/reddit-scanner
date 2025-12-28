@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Comprehensive MCP test client for Reddit Scanner
-Tests request/response for all 12 tools with placeholder values and robust debugging
+Tests request/response for all 11 tools with placeholder values and robust debugging
 
 Includes Market Intelligence Spider tools:
 - niche_community_discoverer (v2)
@@ -375,7 +375,7 @@ def test_all_tools():
 
 if __name__ == "__main__":
     print("Reddit Scanner MCP Tool Tester")
-    print("This script tests all 12 tools with placeholder values")
+    print("This script tests all 11 tools with placeholder values")
     print("Includes Market Intelligence Spider tools: niche_community_discoverer (v2), workflow_thread_inspector, wiki_tool_extractor")
     print("Provides detailed debugging output for each response")
     print("-" * 80)

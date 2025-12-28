@@ -158,15 +158,12 @@ Analyzes engagement patterns to validate problem severity.
 Finds smaller, specialized subreddits with unmet software needs. Now supports keyword-based discovery and sidebar spidering.
 
 **Parameters:**
-- `seed_subreddits`: Starting subreddits (optional if using topic_keywords)
-- `topic_keywords`: Keywords to search for communities (e.g., ["automation", "workflow"])
-- `min_subscribers`: Minimum community size
-- `max_subscribers`: Maximum community size
-- `activity_threshold`: Minimum posts per day
-- `related_depth`: How deep to explore related subreddits
-- `spider_sidebar`: Whether to spider sidebar links for related communities
-- `max_communities`: Maximum communities to return
-- `batch_delay`: Delay between API request batches (for rate limiting)
+- `topic_keywords`: List of intent-based search terms (e.g., ["automation", "workflow"])
+- `min_subscribers`: Minimum community size (default: 5000)
+- `max_subscribers`: Maximum community size (default: 200000)
+- `max_communities`: Maximum communities to return (default: 50)
+- `spider_sidebar`: Whether to spider sidebar links for related communities (default: True)
+- `batch_delay`: Delay between API request batches for rate limiting (default: 1.5)
 
 **Example Use Case**: Discover niche communities related to r/productivity that might need specialized tools, or find communities by topic keywords like "home automation".
 
