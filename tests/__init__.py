@@ -1,0 +1,1 @@
+"""Reddit Scanner test suite."""
