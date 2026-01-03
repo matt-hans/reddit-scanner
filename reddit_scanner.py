@@ -416,7 +416,18 @@ def input_validator(*validation_rules):
                     elif validator == 'positive_int':
                         if not validate_positive_int(param_value):
                             raise ValidationError(f"Invalid {param_name}: must be positive integer <= 1000")
-                
+
+                    elif validator == 'string_list':
+                        if not isinstance(param_value, list) or not param_value:
+                            raise ValidationError(f"Invalid {param_name}: must be non-empty list")
+                        for item in param_value:
+                            if not isinstance(item, str) or not item.strip():
+                                raise ValidationError(f"Invalid {param_name}: all items must be non-empty strings")
+
+                    elif validator == 'dict_non_empty':
+                        if not isinstance(param_value, dict) or not param_value:
+                            raise ValidationError(f"Invalid {param_name}: must be non-empty dictionary")
+
                 # Call original function if validation passes
                 return await func(*args, **kwargs)
                 
@@ -503,13 +514,17 @@ async def subreddit_pain_point_scanner(
         include_comments: Whether to include comments in the scan
         comment_depth: Depth of comment threads to search
     """
+    response = ToolResponse(tool_name="subreddit_pain_point_scanner")
+
     if pain_keywords is None:
-        pain_keywords = ["frustrated", "annoying", "wish there was", "need help with", 
+        pain_keywords = ["frustrated", "annoying", "wish there was", "need help with",
                         "struggling with", "pain point", "difficult", "tedious"]
-    
-    pain_points = []
+
     category_counts = defaultdict(int)
-    
+    posts_analyzed = 0
+    comments_scanned = 0
+    subreddits_successful = 0
+
     for subreddit_name in subreddit_names:
         try:
             # Get subreddit using RedditClient
@@ -517,26 +532,29 @@ async def subreddit_pain_point_scanner(
             subreddit = await RedditClient.execute(
                 lambda: reddit.subreddit(subreddit_name)
             )
-            
+
             # Get posts using RedditClient
             posts = await RedditClient.execute(
                 lambda: list(subreddit.top(time_filter=time_filter, limit=limit))
             )
-            
+
+            subreddits_successful += 1
+
             for post in posts:
+                posts_analyzed += 1
                 if post.score < min_score:
                     continue
-                    
+
                 post_text = f"{post.title} {post.selftext}".lower()
                 found_keywords = [kw for kw in pain_keywords if kw in post_text]
-                
+
                 if found_keywords:
                     # Extract problem description
                     problem = '. '.join([
-                        s for s in post.selftext.split('.') 
+                        s for s in post.selftext.split('.')
                         if any(kw in s.lower() for kw in found_keywords)
                     ][:3])
-                    
+
                     # Use safe serialization
                     pain_point = SafeJSONEncoder.serialize_post(post)
                     pain_point.update({
@@ -544,11 +562,11 @@ async def subreddit_pain_point_scanner(
                         "keywords": found_keywords,
                         "problem": problem
                     })
-                    pain_points.append(pain_point)
-                    
+                    response.add_result(pain_point)
+
                     for kw in found_keywords:
                         category_counts[kw] += 1
-                
+
                 # Process comments if requested
                 if include_comments:
                     try:
@@ -558,44 +576,57 @@ async def subreddit_pain_point_scanner(
                         comments = await RedditClient.execute(
                             lambda: post.comments.list()[:comment_depth]
                         )
-                        
+
                         for comment in comments:
-                            if (hasattr(comment, 'score') and comment.score >= min_score and 
-                                hasattr(comment, 'body') and 
+                            comments_scanned += 1
+                            if (hasattr(comment, 'score') and comment.score >= min_score and
+                                hasattr(comment, 'body') and
                                 any(kw in comment.body.lower() for kw in pain_keywords)):
-                                
+
                                 comment_data = SafeJSONEncoder.serialize_comment(comment)
                                 comment_data["type"] = "comment"
-                                pain_points.append(comment_data)
-                                
-                    except (prawcore.exceptions.Forbidden, 
+                                response.add_result(comment_data)
+
+                    except (prawcore.exceptions.Forbidden,
                             prawcore.exceptions.NotFound) as e:
                         logger.warning(f"Cannot access comments for post {post.id}: {e}")
                     except Exception as e:
                         logger.error(f"Error processing comments for post {post.id}: {e}")
-                        
-        except (prawcore.exceptions.Forbidden, 
+
+        except (prawcore.exceptions.Forbidden,
                 prawcore.exceptions.NotFound) as e:
             logger.warning(f"Cannot access subreddit {subreddit_name}: {e}")
+            response.add_error(subreddit_name, f"Access denied: {e}")
         except (prawcore.exceptions.ServerError,
                 prawcore.exceptions.TooManyRequests) as e:
             logger.error(f"Reddit API error for {subreddit_name}: {e}")
+            response.add_error(subreddit_name, f"API error: {e}")
         except Exception as e:
             logger.error(f"Unexpected error scanning {subreddit_name}: {e}")
-    
-    # Sort by score and limit results
-    pain_points.sort(key=lambda x: x.get("score", 0), reverse=True)
-    
-    result = {
-        "pain_points": pain_points[:50],
-        "category_counts": dict(category_counts),
-        "total_found": len(pain_points),
-        "subreddits_scanned": len(subreddit_names)
+            response.add_error(subreddit_name, f"Unexpected error: {e}")
+
+    # Sort results by score
+    response.results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    response.results = response.results[:50]  # Limit to top 50
+
+    response.stats = {
+        "subreddits_scanned": len(subreddit_names),
+        "subreddits_successful": subreddits_successful,
+        "posts_analyzed": posts_analyzed,
+        "comments_scanned": comments_scanned,
+        "total_found": len(response.results)
     }
-    
-    return safe_json_response(result)
+    response.extra_metadata["keywords_used"] = pain_keywords
+    response.extra_metadata["time_filter"] = time_filter
+    response.extra_metadata["category_counts"] = dict(category_counts)
+
+    return response.to_response()
 
 @mcp.tool()
+@input_validator(
+    ("subreddit_names", "subreddit_names", "subreddit_list"),
+    ("time_window", "time_window", "time_filter")
+)
 async def solution_request_tracker(
     subreddit_names: List[str],
     request_patterns: List[str] = None,
@@ -614,12 +645,16 @@ async def solution_request_tracker(
         time_window: Time period ('hour', 'day', 'week', 'month', 'year', 'all')
         category_keywords: Keywords to categorize requests
     """
+    response = ToolResponse(tool_name="solution_request_tracker")
+
     if request_patterns is None:
         request_patterns = ["looking for.*app", "any.*tools", "recommend.*software"]
     if category_keywords is None:
         category_keywords = {"automation": ["automate", "workflow"], "productivity": ["efficiency", "time"]}
-    requests = []
-    
+
+    posts_analyzed = 0
+    subreddits_successful = 0
+
     for subreddit_name in subreddit_names:
         try:
             reddit = await RedditClient.get()
@@ -629,8 +664,11 @@ async def solution_request_tracker(
             posts = await RedditClient.execute(
                 lambda: list(subreddit.top(time_filter=time_window, limit=100))
             )
-            
+
+            subreddits_successful += 1
+
             for post in posts:
+                posts_analyzed += 1
                 if not hasattr(post, 'num_comments') or post.num_comments < min_engagement:
                     continue
                 post_text = f"{post.title} {post.selftext}" if hasattr(post, 'selftext') else post.title
@@ -639,19 +677,35 @@ async def solution_request_tracker(
                         continue
                     category = next((cat for cat, kws in category_keywords.items() if any(kw in post_text.lower() for kw in kws)), "general")
                     requirements = extract_patterns(post_text, [r"need.*?(?=\.)", r"must.*?(?=\.)"])
-                    
+
                     request_data = SafeJSONEncoder.serialize_post(post)
                     request_data.update({
-                        "category": category, 
+                        "category": category,
                         "requirements": requirements[:3]
                     })
-                    requests.append(request_data)
+                    response.add_result(request_data)
         except Exception as e:
             logger.error(f"Error tracking {subreddit_name}: {e}")
-    result = {"requests": requests[:50], "total": len(requests)}
-    return safe_json_response(result)
+            response.add_error(subreddit_name, str(e))
+
+    response.results = response.results[:50]  # Limit to top 50
+
+    response.stats = {
+        "subreddits_scanned": len(subreddit_names),
+        "subreddits_successful": subreddits_successful,
+        "posts_analyzed": posts_analyzed,
+        "total_found": len(response.results)
+    }
+    response.extra_metadata["patterns_used"] = request_patterns
+    response.extra_metadata["time_window"] = time_window
+    response.extra_metadata["min_engagement"] = min_engagement
+
+    return response.to_response()
 
 @mcp.tool()
+@input_validator(
+    ("subreddit_names", "subreddit_names", "subreddit_list")
+)
 async def user_workflow_analyzer(
     subreddit_names: List[str],
     workflow_indicators: List[str] = None,
@@ -662,16 +716,20 @@ async def user_workflow_analyzer(
 
     Args:
         subreddit_names: Subreddits to target
-        workflow_indicators: Keywords like “process”, “steps”
+        workflow_indicators: Keywords like "process", "steps"
         min_steps: Minimum steps for complexity
         efficiency_keywords: Words indicating inefficiency
     """
+    response = ToolResponse(tool_name="user_workflow_analyzer")
+
     if workflow_indicators is None:
         workflow_indicators = ["process", "steps", "routine", "manually"]
     if efficiency_keywords is None:
         efficiency_keywords = ["time-consuming", "repetitive"]
-    workflows = []
-    
+
+    posts_analyzed = 0
+    subreddits_successful = 0
+
     for subreddit_name in subreddit_names:
         try:
             reddit = await RedditClient.get()
@@ -681,26 +739,45 @@ async def user_workflow_analyzer(
             posts = await RedditClient.execute(
                 lambda: list(subreddit.search(" ".join(workflow_indicators), limit=100))
             )
-            
+
+            subreddits_successful += 1
+
             for post in posts:
+                posts_analyzed += 1
                 if hasattr(post, 'selftext') and post.selftext:
                     steps = extract_patterns(post.selftext, [r"(?:step\s*)?(\d+)[\.\)]\s*([^\n]+)", r"(?:then|next)\s*([^\n]+)"])
                     if len(steps) >= min_steps:
                         issues = [kw for kw in efficiency_keywords if kw in post.selftext.lower()]
-                        
+
                         workflow_data = SafeJSONEncoder.serialize_post(post)
                         workflow_data.update({
-                            "steps": steps[:5], 
+                            "steps": steps[:5],
                             "issues": issues,
                             "complexity_score": len(steps)
                         })
-                        workflows.append(workflow_data)
+                        response.add_result(workflow_data)
         except Exception as e:
             logger.error(f"Error analyzing {subreddit_name}: {e}")
-    result = {"workflows": workflows[:50], "total": len(workflows)}
-    return safe_json_response(result)
+            response.add_error(subreddit_name, str(e))
+
+    response.results = response.results[:50]  # Limit to top 50
+
+    response.stats = {
+        "subreddits_scanned": len(subreddit_names),
+        "subreddits_successful": subreddits_successful,
+        "posts_analyzed": posts_analyzed,
+        "total_found": len(response.results)
+    }
+    response.extra_metadata["indicators_used"] = workflow_indicators
+    response.extra_metadata["min_steps"] = min_steps
+    response.extra_metadata["efficiency_keywords"] = efficiency_keywords
+
+    return response.to_response()
 
 @mcp.tool()
+@input_validator(
+    ("competitor_names", "competitor_names", "string_list")
+)
 async def competitor_mention_monitor(
     competitor_names: List[str],
     sentiment_threshold: float = 0.0,
@@ -713,20 +790,27 @@ async def competitor_mention_monitor(
         sentiment_threshold: Sentiment score threshold (-1 to 1)
         limitation_keywords: Keywords indicating limitations
     """
+    response = ToolResponse(tool_name="competitor_mention_monitor")
+
     if limitation_keywords is None:
         limitation_keywords = ["but", "however", "missing"]
     pos_keywords = {"great": 0.8, "love": 1.0}
     neg_keywords = {"hate": -1.0, "terrible": -1.0}
-    mentions = []
-    
+
+    posts_analyzed = 0
+    competitors_successful = 0
+
     for name in competitor_names:
         try:
             reddit = await RedditClient.get()
             posts = await RedditClient.execute(
                 lambda: list(reddit.subreddit("all").search(name, limit=100))
             )
-            
+
+            competitors_successful += 1
+
             for post in posts:
+                posts_analyzed += 1
                 if hasattr(post, 'title') and hasattr(post, 'selftext'):
                     text = f"{post.title} {post.selftext}".lower()
                     sentiment = calculate_sentiment(text, pos_keywords, neg_keywords)
@@ -739,13 +823,25 @@ async def competitor_mention_monitor(
                                 "sentiment": round(sentiment, 3),
                                 "limitations": limits
                             })
-                            mentions.append(mention_data)
+                            response.add_result(mention_data)
         except Exception as e:
             logger.error(f"Error monitoring {name}: {e}")
-    
-    mentions.sort(key=lambda x: x.get("sentiment", 0))  # Sort by sentiment (most negative first)
-    result = {"mentions": mentions[:50], "total": len(mentions)}
-    return safe_json_response(result)
+            response.add_error(name, str(e))
+
+    # Sort by sentiment (most negative first)
+    response.results.sort(key=lambda x: x.get("sentiment", 0))
+    response.results = response.results[:50]  # Limit to top 50
+
+    response.stats = {
+        "competitors_searched": len(competitor_names),
+        "competitors_successful": competitors_successful,
+        "posts_analyzed": posts_analyzed,
+        "total_found": len(response.results)
+    }
+    response.extra_metadata["limitation_keywords"] = limitation_keywords
+    response.extra_metadata["sentiment_threshold"] = sentiment_threshold
+
+    return response.to_response()
 
 @mcp.tool()
 @input_validator(
@@ -763,31 +859,30 @@ async def subreddit_engagement_analyzer(
         engagement_metrics: Metrics ('upvote_ratio', 'comment_rate')
         time_decay: Apply time decay to engagement
     """
+    response = ToolResponse(tool_name="subreddit_engagement_analyzer")
+
     if engagement_metrics is None:
         engagement_metrics = ["upvote_ratio", "comment_rate"]
-    
-    analyzed = []
-    failed_posts = []
-    
+
     for post_id in post_ids:
         try:
             reddit = await RedditClient.get()
             post = await RedditClient.execute(
                 lambda: reddit.submission(id=post_id)
             )
-            
+
             # Verify post exists and is accessible
             if not hasattr(post, 'title') or not hasattr(post, 'created_utc'):
                 logger.warning(f"Post {post_id} missing required attributes")
-                failed_posts.append({"post_id": post_id, "error": "Missing required attributes"})
+                response.add_error(post_id, "Missing required attributes")
                 continue
-            
+
             metrics = {}
-            
+
             # Calculate upvote ratio if requested
             if "upvote_ratio" in engagement_metrics and hasattr(post, 'upvote_ratio'):
                 metrics["upvote_ratio"] = post.upvote_ratio
-            
+
             # Calculate comment rate if requested
             if "comment_rate" in engagement_metrics:
                 if hasattr(post, 'num_comments') and hasattr(post, 'created_utc'):
@@ -798,7 +893,7 @@ async def subreddit_engagement_analyzer(
                     metrics["comment_rate"] = post.num_comments / max(hours, 1)
                 else:
                     metrics["comment_rate"] = 0
-            
+
             # Use safe serialization and add engagement metrics
             post_data = SafeJSONEncoder.serialize_post(post)
             post_data.update({
@@ -806,33 +901,32 @@ async def subreddit_engagement_analyzer(
                 "metrics": metrics,
                 "analysis_timestamp": datetime.now().isoformat()
             })
-            
-            analyzed.append(post_data)
-            
-        except (prawcore.exceptions.NotFound, 
+
+            response.add_result(post_data)
+
+        except (prawcore.exceptions.NotFound,
                 prawcore.exceptions.Forbidden) as e:
             logger.warning(f"Cannot access post {post_id}: {e}")
-            failed_posts.append({"post_id": post_id, "error": str(e)})
+            response.add_error(post_id, str(e))
         except Exception as e:
             logger.error(f"Error analyzing post {post_id}: {e}")
-            failed_posts.append({"post_id": post_id, "error": str(e)})
-    
+            response.add_error(post_id, str(e))
+
     # Calculate average engagement
     avg_engagement = 0
-    if analyzed:
-        total_engagement = sum(p.get("engagement", 0) for p in analyzed)
-        avg_engagement = total_engagement / len(analyzed)
-    
-    result = {
-        "analyzed": analyzed,
-        "failed_posts": failed_posts,
-        "avg_engagement": avg_engagement,
+    if response.results:
+        total_engagement = sum(p.get("engagement", 0) for p in response.results)
+        avg_engagement = total_engagement / len(response.results)
+
+    response.stats = {
         "total_posts": len(post_ids),
-        "successful_analyses": len(analyzed),
-        "metrics_calculated": engagement_metrics
+        "successful_analyses": len(response.results),
+        "avg_engagement": avg_engagement
     }
-    
-    return safe_json_response(result)
+    response.extra_metadata["metrics_calculated"] = engagement_metrics
+    response.extra_metadata["time_decay"] = time_decay
+
+    return response.to_response()
 
 @mcp.tool()
 async def niche_community_discoverer(
@@ -1068,68 +1162,78 @@ async def temporal_trend_analyzer(
         trend_keywords: Keywords to track
         growth_threshold: Minimum growth rate
     """
+    response = ToolResponse(tool_name="temporal_trend_analyzer")
+
     if time_periods is None:
         time_periods = ["day", "week", "month"]
     if trend_keywords is None:
         trend_keywords = ["automation", "productivity", "software", "tool", "app"]
-    
+
     trends = defaultdict(lambda: defaultdict(int))
-    failed_subreddits = []
-    
+    posts_analyzed = 0
+    subreddits_successful = 0
+
     for subreddit_name in subreddit_names:
         try:
             reddit = await RedditClient.get()
             subreddit = await RedditClient.execute(
                 lambda: reddit.subreddit(subreddit_name)
             )
-            
+
+            subreddits_successful += 1
+
             for period in time_periods:
                 try:
                     posts = await RedditClient.execute(
                         lambda: list(subreddit.top(time_filter=period, limit=50))
                     )
-                    
+
                     for post in posts:
+                        posts_analyzed += 1
                         if hasattr(post, 'title') and hasattr(post, 'selftext'):
                             text = f"{post.title} {post.selftext}".lower()
                             for keyword in trend_keywords:
                                 if keyword.lower() in text:
                                     trends[keyword][period] += 1
-                                    
-                except (prawcore.exceptions.Forbidden, 
+
+                except (prawcore.exceptions.Forbidden,
                         prawcore.exceptions.NotFound) as e:
                     logger.warning(f"Cannot access {subreddit_name} for period {period}: {e}")
-                    
+
         except Exception as e:
             logger.error(f"Error analyzing {subreddit_name}: {e}")
-            failed_subreddits.append({"subreddit": subreddit_name, "error": str(e)})
-    
-    # Calculate emerging trends
-    emerging_trends = []
+            response.add_error(subreddit_name, str(e))
+
+    # Calculate emerging trends and add to results
     for keyword, period_data in trends.items():
         if "week" in period_data and "month" in period_data and period_data["month"] > 0:
             weekly_avg = period_data["month"] / 4
             if weekly_avg > 0:
                 growth_rate = (period_data["week"] - weekly_avg) / weekly_avg
                 if growth_rate > growth_threshold:
-                    emerging_trends.append({
+                    response.add_result({
                         "keyword": keyword,
                         "growth_rate": round(growth_rate, 3),
                         "weekly_mentions": period_data["week"],
                         "monthly_mentions": period_data["month"]
                     })
-    
-    emerging_trends.sort(key=lambda x: x["growth_rate"], reverse=True)
-    
-    result = {
-        "emerging_trends": emerging_trends[:10],
-        "trend_data": dict(trends),
-        "failed_subreddits": failed_subreddits,
-        "keywords_tracked": trend_keywords,
-        "time_periods": time_periods
+
+    # Sort by growth rate
+    response.results.sort(key=lambda x: x["growth_rate"], reverse=True)
+    response.results = response.results[:10]  # Limit to top 10
+
+    response.stats = {
+        "subreddits_scanned": len(subreddit_names),
+        "subreddits_successful": subreddits_successful,
+        "posts_analyzed": posts_analyzed,
+        "trends_found": len(response.results)
     }
-    
-    return safe_json_response(result)
+    response.extra_metadata["keywords_tracked"] = trend_keywords
+    response.extra_metadata["time_periods"] = time_periods
+    response.extra_metadata["growth_threshold"] = growth_threshold
+    response.extra_metadata["trend_data"] = {k: dict(v) for k, v in trends.items()}
+
+    return response.to_response()
 
 @mcp.tool()
 @input_validator(
@@ -1148,42 +1252,44 @@ async def user_persona_extractor(
         activity_depth: Posts/comments per user
         need_categories: Categories like 'productivity'
     """
+    response = ToolResponse(tool_name="user_persona_extractor")
+
     if need_categories is None:
         need_categories = ["productivity", "automation"]
-    
-    personas = []
+
     users_processed = set()
+    users_failed = 0
     seed_subreddits = ["technology", "software"]
-    
-    for sub_name in seed_subreddits:
+
+    for seed_sub_name in seed_subreddits:
         try:
             reddit = await RedditClient.get()
             subreddit = await RedditClient.execute(
-                lambda: reddit.subreddit(sub_name)
+                lambda: reddit.subreddit(seed_sub_name)
             )
-            
+
             # Get hot posts
             posts = await RedditClient.execute(
                 lambda: list(subreddit.hot(limit=50))
             )
-            
+
             for post in posts:
                 if len(users_processed) >= user_sample_size:
                     break
-                    
+
                 # Check if post has author and we haven't processed them
-                if (post.author and 
-                    hasattr(post.author, 'name') and 
+                if (post.author and
+                    hasattr(post.author, 'name') and
                     post.author.name not in users_processed):
-                    
+
                     try:
                         users_processed.add(post.author.name)
-                        
+
                         # Safely get user submissions
                         user_submissions = await RedditClient.execute(
                             lambda: list(post.author.submissions.new(limit=activity_depth))
                         )
-                        
+
                         # Analyze user needs
                         needs = defaultdict(int)
                         for submission in user_submissions:
@@ -1192,48 +1298,58 @@ async def user_persona_extractor(
                                 for category in need_categories:
                                     if category in text:
                                         needs[category] += 1
-                        
-                        # Try to get user subreddits (this may fail for privacy reasons)
+
+                        # Infer active subreddits from user's recent submissions
+                        # (PRAW cannot access a user's subscribed subreddits for privacy)
                         user_subreddits = []
-                        try:
-                            subreddits = await RedditClient.execute(
-                                lambda: list(post.author.subreddits(limit=5))
-                            )
-                            user_subreddits = [s.display_name for s in subreddits if hasattr(s, 'display_name')]
-                        except (prawcore.exceptions.Forbidden, 
-                                prawcore.exceptions.NotFound) as e:
-                            logger.debug(f"Cannot access subreddits for user {post.author.name}: {e}")
-                        
-                        persona = {
+                        for submission in user_submissions:
+                            if hasattr(submission, 'subreddit') and hasattr(submission.subreddit, 'display_name'):
+                                sub_name = submission.subreddit.display_name
+                                if sub_name not in user_subreddits:
+                                    user_subreddits.append(sub_name)
+                        user_subreddits = user_subreddits[:5]  # Limit to top 5
+
+                        response.add_result({
                             "user": post.author.name,
                             "subreddits": user_subreddits,
                             "needs": dict(needs),
                             "submission_count": len(user_submissions)
-                        }
-                        personas.append(persona)
-                        
-                    except (prawcore.exceptions.Forbidden, 
+                        })
+
+                    except (prawcore.exceptions.Forbidden,
                             prawcore.exceptions.NotFound) as e:
                         logger.warning(f"Cannot access user data for {post.author.name}: {e}")
+                        users_failed += 1
+                        response.add_error(post.author.name, f"Access denied: {e}")
                     except Exception as e:
                         logger.error(f"Error processing user {post.author.name}: {e}")
-                        
-        except (prawcore.exceptions.Forbidden, 
+                        users_failed += 1
+                        response.add_error(post.author.name, str(e))
+
+        except (prawcore.exceptions.Forbidden,
                 prawcore.exceptions.NotFound) as e:
-            logger.warning(f"Cannot access subreddit {sub_name}: {e}")
+            logger.warning(f"Cannot access subreddit {seed_sub_name}: {e}")
+            response.add_error(seed_sub_name, f"Subreddit access denied: {e}")
         except Exception as e:
-            logger.error(f"Error extracting from {sub_name}: {e}")
-    
-    result = {
-        "personas": personas,
-        "total": len(personas),
-        "categories_analyzed": need_categories,
-        "seed_subreddits": seed_subreddits
+            logger.error(f"Error extracting from {seed_sub_name}: {e}")
+            response.add_error(seed_sub_name, str(e))
+
+    response.stats = {
+        "users_processed": len(users_processed),
+        "users_successful": len(response.results),
+        "users_failed": users_failed
     }
-    
-    return safe_json_response(result)
+    response.extra_metadata["need_categories"] = need_categories
+    response.extra_metadata["seed_subreddits"] = seed_subreddits
+    response.extra_metadata["user_sample_size"] = user_sample_size
+    response.extra_metadata["activity_depth"] = activity_depth
+
+    return response.to_response()
 
 @mcp.tool()
+@input_validator(
+    ("pain_point_data", "pain_point_data", "dict_non_empty")
+)
 async def idea_validation_scorer(
     pain_point_data: Dict[str, Any],
     market_size_weight: float = 0.3,
@@ -1250,20 +1366,45 @@ async def idea_validation_scorer(
         competition_weight: Weight for competition
         technical_feasibility: Feasibility scores
     """
+    response = ToolResponse(tool_name="idea_validation_scorer")
+
     if technical_feasibility is None:
         technical_feasibility = {"general": 0.7}
-    scores = []
-    
+
     for pain, data in pain_point_data.items():
-        market = min(1.0, data.get("count", 0) / 100)
-        severity = min(1.0, data.get("score", 0) / 100)
-        comp = 1 - min(1.0, data.get("competition", 0) / 10)
-        feas = technical_feasibility.get(pain, 0.5)
-        total = (market * market_size_weight + severity * severity_weight + comp * competition_weight + feas * 0.2)
-        scores.append({"pain": pain, "total": total, "market": market, "severity": severity, "comp": comp, "feas": feas})
-    scores.sort(key=lambda x: x["total"], reverse=True)
-    result = {"scores": scores[:10], "total": len(scores)}
-    return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        try:
+            market = min(1.0, data.get("count", 0) / 100)
+            severity = min(1.0, data.get("score", 0) / 100)
+            comp = 1 - min(1.0, data.get("competition", 0) / 10)
+            feas = technical_feasibility.get(pain, 0.5)
+            total = (market * market_size_weight + severity * severity_weight + comp * competition_weight + feas * 0.2)
+            response.add_result({
+                "pain": pain,
+                "total": round(total, 4),
+                "market": round(market, 4),
+                "severity": round(severity, 4),
+                "competition": round(comp, 4),
+                "feasibility": round(feas, 4)
+            })
+        except Exception as e:
+            response.add_error(pain, str(e))
+
+    # Sort by total score
+    response.results.sort(key=lambda x: x["total"], reverse=True)
+    response.results = response.results[:10]  # Limit to top 10
+
+    response.stats = {
+        "pain_points_evaluated": len(pain_point_data),
+        "scores_returned": len(response.results)
+    }
+    response.extra_metadata["weights"] = {
+        "market_size": market_size_weight,
+        "severity": severity_weight,
+        "competition": competition_weight,
+        "feasibility": 0.2
+    }
+
+    return response.to_response()
 
 
 # Default workflow signals for workflow_thread_inspector

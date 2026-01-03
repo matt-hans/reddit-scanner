@@ -50,7 +50,7 @@ To obtain Reddit API credentials:
    - Uses FastMCP framework for server implementation
    - Implements 11 specialized tools for Reddit analysis
    - Handles Reddit API authentication via environment variables
-   - All tools return JSON-formatted results wrapped in TextContent
+   - All tools return unified `ToolResponse` envelope with results, metadata, errors, and partial flag
 
 2. **Tool Categories**
    - **Pain Point Discovery**: `subreddit_pain_point_scanner` - Finds posts expressing frustrations
@@ -69,11 +69,12 @@ To obtain Reddit API credentials:
 
 ### Shared Infrastructure
 
-The Market Intelligence Spider tools use shared infrastructure for respectful crawling:
+All tools use shared infrastructure for consistency and reliability:
 
+- **ToolResponse**: Unified response envelope used by ALL 11 tools with `results`, `metadata`, `errors`, and `partial` flag for enterprise-grade consistency
 - **RateLimitConfig**: Configuration dataclass for rate limiting with `batch_delay` (seconds between batches) and `request_budget` (max API requests)
 - **RateLimitedExecutor**: Wraps async operations with rate limiting, budget tracking, and graceful degradation
-- **ToolResponse**: Unified response envelope with `results`, `metadata`, `errors`, and `partial` flag for incomplete results
+- **Input Validators**: Decorator-based validation for subreddit lists, post IDs, time filters, string lists, and non-empty dictionaries
 
 ### Key Design Patterns
 

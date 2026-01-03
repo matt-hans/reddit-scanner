@@ -256,29 +256,30 @@ Scans subreddit wikis and sidebars for recommended tools, software, and resource
 
 ## Output Format
 
-All tools return JSON-formatted results with relevant data:
-
-```json
-{
-  "pain_points": [...],
-  "category_counts": {...},
-  "total_found": 42
-}
-```
-
-Market Intelligence Spider tools use a unified `ToolResponse` envelope:
+All tools return a unified `ToolResponse` envelope for consistent, enterprise-grade responses:
 
 ```json
 {
   "results": [...],
   "metadata": {
-    "requests_made": 15,
-    "execution_time_seconds": 2.3
+    "tool": "subreddit_pain_point_scanner",
+    "timestamp": "2025-12-27T12:00:00.000000",
+    "stats": {
+      "subreddits_scanned": 3,
+      "posts_analyzed": 150,
+      "total_found": 42
+    }
   },
   "errors": [],
   "partial": false
 }
 ```
+
+**Response Fields:**
+- `results`: Array of found items (pain points, requests, mentions, etc.)
+- `metadata`: Tool name, timestamp, processing stats, and tool-specific context
+- `errors`: Array of per-item failures with `item` and `reason` fields
+- `partial`: Boolean indicating if some operations failed (true when errors exist)
 
 Results include URLs, scores, and extracted insights for easy analysis.
 
